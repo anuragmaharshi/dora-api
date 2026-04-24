@@ -1,0 +1,43 @@
+openapi: "3.0.3"
+info:
+  title: DORA API
+  version: "0.0.1"
+  description: Incident management API for DORA compliance reporting.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+paths:
+  /api/v1/health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      tags:
+        - health
+      responses:
+        "200":
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "500":
+          description: Unexpected server error
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - version
+        - timestamp
+      properties:
+        status:
+          type: string
+          example: healthy
+        version:
+          type: string
+          example: "0.0.1"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-04-24T10:00:00Z"
