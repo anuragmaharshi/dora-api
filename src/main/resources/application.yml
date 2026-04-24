@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: dora-api
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/dora}
+    username: ${DB_USER:dora}
+    password: ${DB_PASSWORD:dora}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  mail:
+    host: ${SES_HOST:localhost}
+    port: ${SES_PORT:1025}
+    from: ${SES_SENDER:noreply@dora.local}
+server:
+  port: ${API_PORT:8080}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    url: /openapi.yaml
+  api-docs:
+    path: /v3/api-docs
+aws:
+  s3:
+    endpoint: ${S3_ENDPOINT:http://localhost:9000}
+    region: us-east-1
+    bucket: ${S3_BUCKET:dora-local}

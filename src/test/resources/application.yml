@@ -1,0 +1,30 @@
+spring:
+  datasource:
+    # Driver must be explicit so Spring Boot does not fall back to H2 auto-detection
+    # when no URL is present in the static config (URL is injected via @DynamicPropertySource).
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    url: /openapi.yaml
+  api-docs:
+    path: /v3/api-docs
