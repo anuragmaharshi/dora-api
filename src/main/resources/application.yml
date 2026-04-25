@@ -11,6 +11,7 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
   jpa:
+    open-in-view: false   # Tech debt LLD-01: disable OSIV — service layer owns transaction boundaries
     hibernate:
       ddl-auto: validate
     properties:
@@ -43,3 +44,14 @@ aws:
     endpoint: ${S3_ENDPOINT:http://localhost:9000}
     region: us-east-1
     bucket: ${S3_BUCKET:dora-local}
+
+# DevJwtService config — HMAC-SHA256 local JWT issuer (stands in for Cognito until LLD-16)
+# DEV_JWT_SECRET must be ≥32 chars; never hardcode here — supply via .env or docker-compose env.
+# clock-skew tolerance: 60 seconds (B-2) — documented here so LLD-16 swap knows to preserve it.
+dora:
+  jwt:
+    secret: ${DEV_JWT_SECRET:dev-secret-change-me-min-32-chars-here}
+    ttl-minutes: ${DEV_JWT_TTL_MINUTES:60}
+    # Clock-skew tolerance (B-2): 60 seconds. Allows for minor clock drift between
+    # clients and the server without rejecting otherwise-valid tokens.
+    clock-skew-seconds: 60
