@@ -28,3 +28,10 @@ springdoc:
     url: /openapi.yaml
   api-docs:
     path: /v3/api-docs
+
+# DevJwtService — test values; never commit real secrets here.
+dora:
+  jwt:
+    secret: test-secret-change-me-min-32-chars-here
+    ttl-minutes: 60
+    clock-skew-seconds: 60

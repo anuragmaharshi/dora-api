@@ -6,6 +6,8 @@ info:
 servers:
   - url: http://localhost:8080
     description: Local development
+security:
+  - bearerAuth: []
 paths:
   /api/v1/health:
     get:
@@ -13,6 +15,7 @@ paths:
       operationId: getHealth
       tags:
         - health
+      security: []
       responses:
         "200":
           description: API is healthy
@@ -22,7 +25,111 @@ paths:
                 $ref: "#/components/schemas/HealthResponse"
         "500":
           description: Unexpected server error
+
+  /api/v1/auth/login:
+    post:
+      summary: Authenticate and receive a signed JWT
+      operationId: login
+      tags:
+        - auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authentication successful — JWT returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/auth/me:
+    get:
+      summary: Get authenticated user's profile
+      operationId: getMe
+      tags:
+        - auth
+      responses:
+        "200":
+          description: Authenticated user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/auth/logout:
+    post:
+      summary: Stateless logout — client must discard the token
+      operationId: logout
+      tags:
+        - auth
+      responses:
+        "204":
+          description: Logout acknowledged — no content
+        "401":
+          description: Missing or invalid bearer token
+
+  /api/v1/auth/refresh:
+    post:
+      summary: Issue a new JWT using the current valid token (stateless re-issue)
+      operationId: refreshToken
+      tags:
+        - auth
+      responses:
+        "200":
+          description: New JWT issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Missing or invalid bearer token
+
+  /api/v1/incidents/_probe:
+    get:
+      summary: RBAC probe — accessible to bank roles only (PLATFORM_ADMIN blocked)
+      operationId: incidentProbe
+      tags:
+        - incidents
+      responses:
+        "200":
+          description: Caller has a permitted bank role
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        "401":
+          description: Not authenticated
+        "403":
+          description: Authenticated but role not permitted (e.g. PLATFORM_ADMIN)
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   schemas:
     HealthResponse:
       type: object
@@ -37,6 +144,78 @@ components:
         version:
           type: string
           example: "0.0.1"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-04-24T10:00:00Z"
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: ops@dora.local
+        password:
+          type: string
+          format: password
+          example: ChangeMe!23
+
+    LoginResponse:
+      type: object
+      required:
+        - token
+        - expiresAt
+        - user
+      properties:
+        token:
+          type: string
+          description: Signed HMAC-SHA256 JWT
+          example: eyJhbGciOiJIUzI1NiJ9...
+        expiresAt:
+          type: string
+          format: date-time
+          example: "2026-04-24T11:00:00Z"
+        user:
+          $ref: "#/components/schemas/UserProfile"
+
+    UserProfile:
+      type: object
+      required:
+        - email
+        - roles
+        - tenantId
+        - mfaEnabled
+      properties:
+        email:
+          type: string
+          format: email
+          example: ops@dora.local
+        roles:
+          type: array
+          items:
+            type: string
+          example: ["OPS_ANALYST"]
+        tenantId:
+          type: string
+          format: uuid
+          example: "00000000-0000-0000-0000-000000000001"
+        mfaEnabled:
+          type: boolean
+          example: false
+
+    ErrorResponse:
+      type: object
+      required:
+        - message
+        - timestamp
+      properties:
+        message:
+          type: string
+          example: Invalid credentials
         timestamp:
           type: string
           format: date-time
