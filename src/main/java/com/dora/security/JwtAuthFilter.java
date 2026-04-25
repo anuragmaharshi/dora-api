@@ -50,8 +50,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
-        // Skip entirely for the login endpoint — no token is expected.
-        return LOGIN_PATH.equals(request.getServletPath());
+        // Use getRequestURI() — getServletPath() returns "" in MockMvc slice tests.
+        return LOGIN_PATH.equals(request.getRequestURI());
     }
 
     @Override
@@ -75,6 +75,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             // Load user for tenant_id and mfa_enabled; roles come from the token claim.
             AppUser user = userRepository.findByEmail(email).orElseThrow(
                     () -> new JwtException("User not found for token subject: " + email));
+
+            // Reject tokens for deactivated accounts (active=false soft-delete per LLD-02 §5).
+            if (!user.isActive()) {
+                SecurityContextHolder.clearContext();
+                filterChain.doFilter(request, response);
+                return;
+            }
 
             @SuppressWarnings("unchecked")
             List<String> roleCodes = claims.get("roles", List.class);
