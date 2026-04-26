@@ -7,7 +7,6 @@ import com.dora.repositories.AuditLogRepository;
 import com.dora.security.CustomUserDetails;
 import com.dora.services.AuditService;
 import com.dora.services.audit.AuditAction;
-import com.dora.services.audit.AuditedRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -17,12 +16,10 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.ComponentScan;
-import org.springframework.context.annotation.FilterType;
+import org.springframework.context.annotation.Bean;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -47,36 +44,14 @@ import static org.mockito.Mockito.when;
  * <p>Requires Docker. Uses {@code postgres:15-alpine} with Flyway migrations so the
  * immutability trigger ({@code audit_log_no_mutation}) is active.
  *
- * <h2>Known production bugs found by these tests (all flagged for Developer)</h2>
- * <ol>
- *   <li><b>BUG-1</b>: {@code AuditedRepository} is missing {@code @NoRepositoryBean} on its
- *       interface declaration. Spring Data JPA tries to instantiate {@code AuditedRepository
- *       <Object,Object>} and fails with "Not a managed type: java.lang.Object". Every
- *       {@code @SpringBootTest} that scans the full {@code com.dora} package will fail,
- *       including the W2 smoke tests. Workaround applied via the inner {@link ContextFix}.
- *       Fix: add {@code @NoRepositoryBean} before {@code public interface AuditedRepository} in
- *       {@code AuditedRepository.java}.</li>
- *   <li><b>BUG-2</b>: {@code AuditService.resolveActor()} returns {@code null} tenantId for
- *       SYSTEM (unauthenticated) actions, but {@code audit_log.tenant_id NOT NULL}. Inserting
- *       a SYSTEM audit row violates the DB constraint. Fix: either allow NULL tenant_id in the
- *       migration (matching the actor_id pattern for SYSTEM), or use a sentinel platform-tenant
- *       UUID as fallback in {@code AuditService}. See
- *       {@link #systemActor_nullTenantId_violatesNotNullConstraint}.</li>
- *   <li><b>BUG-3</b>: {@code AuditLog.createdAt} field has no {@code insertable = false} on
- *       its {@code @Column}, so Hibernate sends an explicit {@code NULL} for the column in the
- *       INSERT statement, which overrides the DB {@code DEFAULT now()}. The row is rejected with
- *       "null value in column 'created_at' violates not-null constraint". Fix: add
- *       {@code insertable = false} to the {@code @Column} annotation on {@code createdAt} in
- *       {@code AuditLog.java}, OR initialise the field with {@code Instant.now()}. See
- *       {@link #auditLog_createdAt_notInsertable_bug}.</li>
- * </ol>
- *
- * <p>Because BUG-2 and BUG-3 prevent {@code AuditService.record()} from committing to the DB,
- * the AC-1 happy-path tests (round-trip, ordering, pagination, context-JSONB) are marked
- * {@code @Disabled} with a clear "unblock when BUG-2 + BUG-3 are fixed" note.
- * The AC-2 trigger tests use direct JDBC INSERT to bypass JPA entirely, so they run
- * independently of the bugs.
- * The AC-3 rollback tests similarly require JPA inserts to work, so they are also disabled.
+ * <p>All three production bugs found during LLD-03 thorough-test authoring were fixed in
+ * dora-api PR #9:
+ * <ul>
+ *   <li>BUG-1: {@code @NoRepositoryBean} added to {@code AuditedRepository}.</li>
+ *   <li>BUG-2: {@code tenant_id} made nullable via migration V1_2_1 — SYSTEM events work.</li>
+ *   <li>BUG-3: {@code insertable = false} added to {@code AuditLog.createdAt} — DB DEFAULT
+ *       now() is respected.</li>
+ * </ul>
  */
 @Tag("AC-1")
 @DisplayName("Audit trail integration — requires Docker/Testcontainers")
@@ -85,19 +60,39 @@ import static org.mockito.Mockito.when;
 class AuditIntegrationTest {
 
     /**
-     * BUG-1 workaround: restrict JPA repository scanning to {@code com.dora.repositories}
-     * to skip the undecorated {@code AuditedRepository} in {@code services.audit}.
+     * Spring-managed bean for AC-3 rollback helpers. Methods here are called via the Spring
+     * proxy so @Transactional(REQUIRES_NEW) takes effect (self-invocation would bypass it).
      */
     @TestConfiguration
-    @EnableJpaRepositories(
-            basePackages = "com.dora.repositories",
-            excludeFilters = @ComponentScan.Filter(
-                    type = FilterType.ASSIGNABLE_TYPE,
-                    classes = AuditedRepository.class))
-    static class ContextFix {}
+    static class RollbackHelperConfig {
+        @Bean
+        RollbackHelper rollbackHelper(AuditService auditService) {
+            return new RollbackHelper(auditService);
+        }
+    }
+
+    static class RollbackHelper {
+        private final AuditService auditService;
+        RollbackHelper(AuditService auditService) { this.auditService = auditService; }
+
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        public void recordAndRollback(UUID entityId) {
+            auditService.record(AuditAction.INCIDENT_CREATED, "INCIDENT", entityId, null, null);
+            throw new RuntimeException("forced rollback for AC-3 test");
+        }
+
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        public void recordTwoAndRollback(UUID entityId1, UUID entityId2) {
+            auditService.record(AuditAction.INCIDENT_CREATED, "INCIDENT", entityId1, null, null);
+            auditService.record(AuditAction.INCIDENT_UPDATED, "INCIDENT", entityId2, null, null);
+            throw new RuntimeException("forced rollback for AC-3 multi-row test");
+        }
+    }
 
     /** Tenant UUID seeded by Flyway V1_1_0 / V1_1_1 migrations. */
     private static final UUID SEEDED_TENANT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    /** OPS_ANALYST user seeded by V1_1_1 — satisfies fk_audit_log_actor FK. */
+    private static final UUID SEEDED_USER_ID = UUID.fromString("00000000-0000-0000-0001-000000000002");
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine")
@@ -121,13 +116,16 @@ class AuditIntegrationTest {
     @Autowired
     JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    RollbackHelper rollbackHelper;
+
     @BeforeEach
     void setAuthenticatedContext() {
         Tenant tenant = Mockito.mock(Tenant.class);
         when(tenant.getId()).thenReturn(SEEDED_TENANT_ID);
         AppUser user = Mockito.mock(AppUser.class);
         when(user.getTenant()).thenReturn(tenant);
-        when(user.getId()).thenReturn(UUID.randomUUID());
+        when(user.getId()).thenReturn(SEEDED_USER_ID);
         when(user.getUsername()).thenReturn("integration-test@dora.local");
         CustomUserDetails details = new CustomUserDetails(user, List.of("OPS_ANALYST"));
         var auth = new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities());
@@ -142,51 +140,51 @@ class AuditIntegrationTest {
         jdbcTemplate.execute("TRUNCATE TABLE audit_log");
     }
 
-    // ── BUG documentation ─────────────────────────────────────────────────────
+    // ── BUG-2 regression: SYSTEM actor with null tenant_id ────────────────────
 
     /**
-     * Documents BUG-2: SYSTEM actor with null tenantId violates NOT NULL on tenant_id.
-     * This test PASSES (it asserts the exception is thrown). Fix is in AuditService.
+     * BUG-2 regression: V1_2_1 made tenant_id nullable so SYSTEM (unauthenticated) events
+     * no longer violate the DB NOT NULL constraint.
      */
     @Test
     @Tag("AC-1")
-    @DisplayName("BUG-2: SYSTEM actor (no auth context) throws due to null tenant_id violating NOT NULL")
-    void systemActor_nullTenantId_violatesNotNullConstraint() {
+    @DisplayName("BUG-2 fix: SYSTEM actor (no auth context) records successfully — tenant_id is nullable")
+    void systemActor_nullTenantId_recordsSuccessfully() {
         SecurityContextHolder.clearContext();
 
-        assertThatThrownBy(() ->
-                auditService.record(AuditAction.SYSTEM, "PROBE", UUID.randomUUID(), null, null))
-                .isInstanceOf(Exception.class);
-        // DEV FIX: either (a) make audit_log.tenant_id nullable for SYSTEM actions,
-        // or (b) use a sentinel platform-tenant UUID as fallback in AuditService.resolveActor()
+        UUID entityId = UUID.randomUUID();
+        auditService.record(AuditAction.SYSTEM, "PROBE", entityId, null, null);
+
+        int count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM audit_log WHERE entity_id = ?", Integer.class, entityId);
+        assertThat(count).as("SYSTEM audit row must be persisted with null tenant_id").isEqualTo(1);
+
+        String tenantIdCol = jdbcTemplate.queryForObject(
+                "SELECT tenant_id::text FROM audit_log WHERE entity_id = ?", String.class, entityId);
+        assertThat(tenantIdCol).as("tenant_id must be NULL for SYSTEM events").isNull();
     }
 
     /**
-     * Documents BUG-3: AuditLog.createdAt is null at insert time (no insertable=false or
-     * constructor init), but the DB column is NOT NULL. JPA sends explicit NULL which overrides
-     * the DB DEFAULT now() and triggers a constraint violation.
-     * This test PASSES (it asserts the exception is thrown). Fix is in AuditLog entity.
+     * BUG-3 regression: insertable=false on AuditLog.createdAt lets the DB DEFAULT now()
+     * fire rather than Hibernate sending explicit NULL.
      */
     @Test
     @Tag("AC-1")
-    @DisplayName("BUG-3: AuditLog.createdAt=null at insert violates NOT NULL (insertable=false missing)")
-    void auditLog_createdAt_notInsertable_bug() {
-        // Authenticated context set in @BeforeEach (tenant_id will be non-null)
-        assertThatThrownBy(() ->
-                auditService.record(AuditAction.INCIDENT_CREATED, "INCIDENT", UUID.randomUUID(), null, null))
-                .isInstanceOf(Exception.class);
-        // DEV FIX: add @Column(insertable = false) to AuditLog.createdAt field,
-        // OR set: private Instant createdAt = Instant.now(); in the entity
+    @DisplayName("BUG-3 fix: AuditLog.createdAt is set by DB DEFAULT when insertable=false")
+    void auditLog_createdAt_setByDbDefault() {
+        UUID entityId = UUID.randomUUID();
+        auditService.record(AuditAction.INCIDENT_CREATED, "INCIDENT", entityId, null, null);
+
+        String createdAt = jdbcTemplate.queryForObject(
+                "SELECT created_at::text FROM audit_log WHERE entity_id = ?", String.class, entityId);
+        assertThat(createdAt).as("created_at must be set by DB DEFAULT now()").isNotNull();
     }
 
-    // ── AC-1: round-trip tests (blocked by BUG-2 + BUG-3) ───────────────────
-    // These tests are written and structurally correct. They will pass once the Developer
-    // fixes BUG-2 (tenant_id nullable/fallback) and BUG-3 (createdAt insertable=false).
+    // ── AC-1: round-trip tests ────────────────────────────────────────────────
 
     @Test
     @Tag("AC-1")
-    @org.junit.jupiter.api.Disabled("Blocked by BUG-3 (AuditLog.createdAt NOT NULL) — enable after fix")
-    @DisplayName("AC-1 [BLOCKED BUG-3]: record() persists row; findByEntity() returns it with correct fields")
+    @DisplayName("AC-1: record() persists row; findByEntity() returns it with correct fields")
     void record_thenFindByEntity_roundTrip() {
         UUID entityId = UUID.randomUUID();
         auditService.record(AuditAction.INCIDENT_CREATED, "INCIDENT", entityId, null, null);
@@ -205,8 +203,7 @@ class AuditIntegrationTest {
 
     @Test
     @Tag("AC-1")
-    @org.junit.jupiter.api.Disabled("Blocked by BUG-3 — enable after fix")
-    @DisplayName("AC-1 [BLOCKED BUG-3]: findByEntity() returns rows ordered newest first")
+    @DisplayName("AC-1: findByEntity() returns rows ordered newest first")
     void findByEntity_returnsNewestFirst() throws InterruptedException {
         UUID entityId = UUID.randomUUID();
         auditService.record(AuditAction.INCIDENT_CREATED, "INCIDENT", entityId, null, null);
@@ -224,8 +221,7 @@ class AuditIntegrationTest {
 
     @Test
     @Tag("AC-1")
-    @org.junit.jupiter.api.Disabled("Blocked by BUG-3 — enable after fix")
-    @DisplayName("AC-1 [BLOCKED BUG-3]: pagination — page 0 size 2 of 3 returns 2 entries")
+    @DisplayName("AC-1: pagination — page 0 size 2 of 3 returns 2 entries")
     void findByEntity_pagination_returnsCorrectPage() throws InterruptedException {
         UUID entityId = UUID.randomUUID();
         auditService.record(AuditAction.INCIDENT_CREATED, "INCIDENT", entityId, null, null);
@@ -244,21 +240,19 @@ class AuditIntegrationTest {
 
     @Test
     @Tag("AC-1")
-    @org.junit.jupiter.api.Disabled("Blocked by BUG-3 — enable after fix")
-    @DisplayName("AC-1 [BLOCKED BUG-3]: context JSONB persisted with three keys: request_id, remote_ip, user_agent")
+    @DisplayName("AC-1: context JSONB persisted with three keys: request_id, remote_ip, user_agent")
     void record_persistedContextHasThreeKeys() {
         UUID entityId = UUID.randomUUID();
-        auditService.record(AuditAction.SYSTEM, "PROBE", entityId, null, null);
+        auditService.record(AuditAction.INCIDENT_CREATED, "PROBE", entityId, null, null);
         String contextJson = jdbcTemplate.queryForObject(
                 "SELECT context::text FROM audit_log WHERE entity_id = ?", String.class, entityId);
         assertThat(contextJson).contains("request_id").contains("remote_ip").contains("user_agent");
     }
 
-    // ── AC-2: trigger tests — use direct JDBC INSERT, independent of JPA bugs ─
+    // ── AC-2: trigger tests — use direct JDBC INSERT, independent of JPA ──────
 
     /**
-     * Insert a row via direct SQL (bypasses JPA and the BUG-3 created_at issue),
-     * then assert the UPDATE/DELETE trigger fires.
+     * Insert a row via direct SQL (bypasses JPA) to isolate trigger behaviour from entity bugs.
      */
     private UUID insertRowDirectly(String entityType, String action) {
         UUID rowId = UUID.randomUUID();
@@ -323,16 +317,15 @@ class AuditIntegrationTest {
         assertThat(count).isEqualTo(1);
     }
 
-    // ── AC-3: rollback tests (blocked by BUG-3) ──────────────────────────────
+    // ── AC-3: rollback tests ──────────────────────────────────────────────────
 
     @Test
     @Tag("AC-3")
-    @org.junit.jupiter.api.Disabled("Blocked by BUG-3 (AuditLog.createdAt NOT NULL) — enable after fix")
-    @DisplayName("AC-3 [BLOCKED BUG-3]: audit row is NOT committed when surrounding transaction rolls back")
+    @DisplayName("AC-3: audit row is NOT committed when surrounding transaction rolls back")
     void rollback_discardsAuditRow() {
         UUID entityId = UUID.randomUUID();
         try {
-            recordAndRollback(entityId);
+            rollbackHelper.recordAndRollback(entityId);
         } catch (RuntimeException expected) {}
 
         int count = jdbcTemplate.queryForObject(
@@ -342,8 +335,7 @@ class AuditIntegrationTest {
 
     @Test
     @Tag("AC-3")
-    @org.junit.jupiter.api.Disabled("Blocked by BUG-3 — enable after fix")
-    @DisplayName("AC-3 [BLOCKED BUG-3]: audit row IS committed when transaction commits normally")
+    @DisplayName("AC-3: audit row IS committed when transaction commits normally")
     void commit_persistsAuditRow() {
         UUID entityId = UUID.randomUUID();
         auditService.record(AuditAction.INCIDENT_CREATED, "INCIDENT", entityId, null, null);
@@ -355,31 +347,17 @@ class AuditIntegrationTest {
 
     @Test
     @Tag("AC-3")
-    @org.junit.jupiter.api.Disabled("Blocked by BUG-3 — enable after fix")
-    @DisplayName("AC-3 [BLOCKED BUG-3]: multiple records in rolled-back transaction — none committed")
+    @DisplayName("AC-3: multiple records in rolled-back transaction — none committed")
     void rollback_discardsAllAuditRowsInSameTransaction() {
         UUID entityId1 = UUID.randomUUID();
         UUID entityId2 = UUID.randomUUID();
         try {
-            recordTwoAndRollback(entityId1, entityId2);
+            rollbackHelper.recordTwoAndRollback(entityId1, entityId2);
         } catch (RuntimeException expected) {}
 
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM audit_log WHERE entity_id = ?", Integer.class, entityId1)).isEqualTo(0);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM audit_log WHERE entity_id = ?", Integer.class, entityId2)).isEqualTo(0);
-    }
-
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void recordAndRollback(UUID entityId) {
-        auditService.record(AuditAction.INCIDENT_CREATED, "INCIDENT", entityId, null, null);
-        throw new RuntimeException("forced rollback for AC-3 test");
-    }
-
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void recordTwoAndRollback(UUID entityId1, UUID entityId2) {
-        auditService.record(AuditAction.INCIDENT_CREATED, "INCIDENT", entityId1, null, null);
-        auditService.record(AuditAction.INCIDENT_UPDATED, "INCIDENT", entityId2, null, null);
-        throw new RuntimeException("forced rollback for AC-3 multi-row test");
     }
 }
