@@ -92,10 +92,10 @@ class V1_2_0_AuditLogMigrationTest {
         assertThat(typeByCol.get("id")).isEqualTo("uuid");
         assertThat(nullableByCol.get("id")).isEqualTo("NO");
 
-        // tenant_id — UUID, NOT NULL
+        // tenant_id — UUID, nullable (V1_2_1 allows NULL for SYSTEM-scoped events)
         assertThat(typeByCol).containsKey("tenant_id");
         assertThat(typeByCol.get("tenant_id")).isEqualTo("uuid");
-        assertThat(nullableByCol.get("tenant_id")).isEqualTo("NO");
+        assertThat(nullableByCol.get("tenant_id")).isEqualTo("YES");
 
         // actor_id — UUID, NULL allowed (SYSTEM actions)
         assertThat(typeByCol).containsKey("actor_id");

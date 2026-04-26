@@ -43,7 +43,8 @@ public class AuditLog {
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
-    @Column(name = "tenant_id", nullable = false, updatable = false)
+    // NULL for SYSTEM events that are not scoped to a specific tenant.
+    @Column(name = "tenant_id", updatable = false)
     private UUID tenantId;
 
     // NULL only for SYSTEM action (actor_id has nullable FK to app_user)
@@ -81,8 +82,8 @@ public class AuditLog {
     @Column(name = "context", updatable = false, columnDefinition = "jsonb")
     private JsonNode context;
 
-    // Set by DB DEFAULT now(); populated after insert via GenerationType.UUID/JPA flush.
-    @Column(name = "created_at", nullable = false, updatable = false)
+    // Set by DB DEFAULT now(); insertable=false so Hibernate does not send NULL, letting the DB set it.
+    @Column(name = "created_at", nullable = false, updatable = false, insertable = false)
     private Instant createdAt;
 
     protected AuditLog() {
