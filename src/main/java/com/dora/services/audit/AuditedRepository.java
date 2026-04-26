@@ -30,6 +30,7 @@ import org.springframework.data.repository.NoRepositoryBean;
  * @param <T>  the entity type
  * @param <ID> the primary key type
  */
+@NoRepositoryBean
 public interface AuditedRepository<T, ID> extends JpaRepository<T, ID> {
 
     // Hard-delete methods — all prohibited. The message is intentionally stable:
