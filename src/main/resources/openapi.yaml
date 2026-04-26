@@ -101,6 +101,69 @@ paths:
         "401":
           description: Missing or invalid bearer token
 
+  /api/v1/audit:
+    get:
+      summary: "FR-029: List audit history for an entity (read-only, bank roles only)"
+      description: |
+        Returns the append-only audit trail for a specific entity, newest row first.
+        PLATFORM_ADMIN is explicitly excluded (BR-011, NFR-009).
+        Permitted roles: OPS_ANALYST, INCIDENT_MANAGER, COMPLIANCE_OFFICER, CISO, BOARD_VIEWER.
+      operationId: getAuditHistory
+      tags:
+        - audit
+      parameters:
+        - name: entity
+          in: query
+          required: true
+          description: Entity type discriminator (e.g. INCIDENT, CLASSIFICATION, NCA_REPORT)
+          schema:
+            type: string
+            example: INCIDENT
+        - name: id
+          in: query
+          required: true
+          description: UUID of the entity whose audit history is requested
+          schema:
+            type: string
+            format: uuid
+            example: "00000000-0000-0000-0000-000000000099"
+        - name: page
+          in: query
+          required: false
+          description: 0-based page index
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: size
+          in: query
+          required: false
+          description: Number of rows per page
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Paginated audit history, newest first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEntryPage"
+        "400":
+          description: Missing or invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller does not have a permitted bank role (e.g. PLATFORM_ADMIN)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/v1/incidents/_probe:
     get:
       summary: RBAC probe — accessible to bank roles only (PLATFORM_ADMIN blocked)
@@ -206,6 +269,88 @@ components:
         mfaEnabled:
           type: boolean
           example: false
+
+    AuditEntry:
+      type: object
+      description: Single row from the append-only audit_log table (LLD-03 §5)
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "aaaaaaaa-0000-0000-0000-000000000001"
+        tenantId:
+          type: string
+          format: uuid
+          example: "00000000-0000-0000-0000-000000000001"
+        actorId:
+          type: string
+          format: uuid
+          nullable: true
+          description: NULL for SYSTEM actions
+          example: "00000000-0000-0000-0001-000000000002"
+        actorUsername:
+          type: string
+          example: ops@dora.local
+        action:
+          type: string
+          example: INCIDENT_CREATED
+        entityType:
+          type: string
+          example: INCIDENT
+        entityId:
+          type: string
+          format: uuid
+          nullable: true
+          description: NULL for non-entity events
+          example: "00000000-0000-0000-0000-000000000099"
+        beforeState:
+          type: object
+          nullable: true
+          description: JSON snapshot of the entity before the change; null on creation events
+        afterState:
+          type: object
+          nullable: true
+          description: JSON snapshot of the entity after the change; null on deletion events
+        context:
+          type: object
+          nullable: true
+          description: "Forensic context: request_id, remote_ip, user_agent only (Q-2 ruling)"
+          properties:
+            request_id:
+              type: string
+              nullable: true
+            remote_ip:
+              type: string
+              nullable: true
+            user_agent:
+              type: string
+              nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          example: "2026-04-25T10:00:00Z"
+
+    AuditEntryPage:
+      type: object
+      description: Spring Page wrapper for AuditEntry (pagination metadata + content array)
+      properties:
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+        size:
+          type: integer
+        number:
+          type: integer
+        first:
+          type: boolean
+        last:
+          type: boolean
 
     ErrorResponse:
       type: object
