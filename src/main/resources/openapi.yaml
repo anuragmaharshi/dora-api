@@ -186,6 +186,260 @@ paths:
         "403":
           description: Authenticated but role not permitted (e.g. PLATFORM_ADMIN)
 
+  # ── LLD-04: Admin endpoints (PLATFORM_ADMIN only) ──────────────────────────
+
+  /api/v1/admin/tenant:
+    get:
+      summary: Get the tenant's current configuration
+      operationId: getAdminTenant
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Tenant configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantConfigDTO"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not PLATFORM_ADMIN
+    put:
+      summary: Update the tenant's configuration
+      operationId: updateAdminTenant
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantConfigUpdateDTO"
+      responses:
+        "200":
+          description: Updated tenant configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantConfigDTO"
+        "400":
+          description: Validation error
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not PLATFORM_ADMIN
+
+  /api/v1/admin/critical-services:
+    get:
+      summary: List all critical services (including archived)
+      operationId: listCriticalServices
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of critical services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CriticalServiceDTO"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not PLATFORM_ADMIN
+    post:
+      summary: Create a new critical service
+      operationId: createCriticalService
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCriticalServiceDTO"
+      responses:
+        "201":
+          description: Critical service created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CriticalServiceDTO"
+        "400":
+          description: Validation error
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not PLATFORM_ADMIN
+        "409":
+          description: Service name already exists for this tenant
+
+  /api/v1/admin/critical-services/{id}:
+    put:
+      summary: Update a critical service
+      operationId: updateCriticalService
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCriticalServiceDTO"
+      responses:
+        "200":
+          description: Updated critical service
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CriticalServiceDTO"
+        "400":
+          description: Validation error
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not PLATFORM_ADMIN
+        "404":
+          description: Service not found
+        "409":
+          description: Service name already exists
+
+  /api/v1/admin/critical-services/{id}/archive:
+    post:
+      summary: Archive a critical service (sets active=false)
+      operationId: archiveCriticalService
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Service archived
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not PLATFORM_ADMIN
+        "404":
+          description: Service not found
+
+  /api/v1/admin/client-base:
+    get:
+      summary: Get client base history (most recent first)
+      operationId: getClientBaseHistory
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Client base history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientBaseHistoryDTO"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not PLATFORM_ADMIN
+    post:
+      summary: Append a new client base count entry
+      operationId: addClientBaseEntry
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetClientBaseDTO"
+      responses:
+        "201":
+          description: Client base entry created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientBaseEntryDTO"
+        "400":
+          description: Validation error
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not PLATFORM_ADMIN
+
+  /api/v1/admin/nca-email:
+    get:
+      summary: Get NCA email configuration
+      operationId: getNcaEmailConfig
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: NCA email configuration (empty if not yet configured)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NcaEmailConfigDTO"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not PLATFORM_ADMIN
+    put:
+      summary: Create or update NCA email configuration
+      operationId: updateNcaEmailConfig
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NcaEmailConfigUpdateDTO"
+      responses:
+        "200":
+          description: Updated NCA email configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NcaEmailConfigDTO"
+        "400":
+          description: Validation error
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not PLATFORM_ADMIN
+
 components:
   securitySchemes:
     bearerAuth:
@@ -365,3 +619,161 @@ components:
           type: string
           format: date-time
           example: "2026-04-24T10:00:00Z"
+
+    # ── LLD-04: Admin schemas ──────────────────────────────────────────────────
+
+    TenantConfigDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        legalName:
+          type: string
+        lei:
+          type: string
+        ncaName:
+          type: string
+        ncaEmail:
+          type: string
+        jurisdictionIso:
+          type: string
+          maxLength: 2
+        primaryComplianceContactId:
+          type: string
+          format: uuid
+
+    TenantConfigUpdateDTO:
+      type: object
+      required:
+        - legalName
+      properties:
+        legalName:
+          type: string
+        lei:
+          type: string
+          pattern: "^[A-Z0-9]{20}$"
+        ncaName:
+          type: string
+        ncaEmail:
+          type: string
+          format: email
+        jurisdictionIso:
+          type: string
+          minLength: 2
+          maxLength: 2
+        primaryComplianceContactId:
+          type: string
+          format: uuid
+
+    CriticalServiceDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateCriticalServiceDTO:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+
+    UpdateCriticalServiceDTO:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+
+    ClientBaseHistoryDTO:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClientBaseEntryDTO"
+
+    ClientBaseEntryDTO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        clientCount:
+          type: integer
+          format: int64
+        effectiveFrom:
+          type: string
+          format: date-time
+        setBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    SetClientBaseDTO:
+      type: object
+      required:
+        - clientCount
+        - effectiveFrom
+      properties:
+        clientCount:
+          type: integer
+          format: int64
+          minimum: 0
+        effectiveFrom:
+          type: string
+          format: date-time
+
+    NcaEmailConfigDTO:
+      type: object
+      properties:
+        sender:
+          type: string
+        recipient:
+          type: string
+        subjectTemplate:
+          type: string
+
+    NcaEmailConfigUpdateDTO:
+      type: object
+      required:
+        - sender
+        - recipient
+        - subjectTemplate
+      properties:
+        sender:
+          type: string
+          format: email
+        recipient:
+          type: string
+          format: email
+        subjectTemplate:
+          type: string
+          maxLength: 500
