@@ -30,6 +30,8 @@ import java.util.List;
  * - BCryptPasswordEncoder at strength 10 per LLD-02 §9.
  * - 401 entry point returns HTTP 401 (not the default 302 redirect to a login page).
  * - @EnableMethodSecurity enables @PreAuthorize on service and controller methods.
+ * - LLD-04: PlatformAdminFirewallFilter is registered AFTER JwtAuthFilter so it can
+ *   read the populated Security context and block PLATFORM_ADMIN on non-admin paths.
  */
 @Configuration
 @EnableWebSecurity
@@ -37,9 +39,12 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final PlatformAdminFirewallFilter platformAdminFirewallFilter;
 
-    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter,
+                          PlatformAdminFirewallFilter platformAdminFirewallFilter) {
         this.jwtAuthFilter = jwtAuthFilter;
+        this.platformAdminFirewallFilter = platformAdminFirewallFilter;
     }
 
     @Bean
@@ -63,7 +68,9 @@ public class SecurityConfig {
                             "/v3/api-docs/**",
                             "/openapi.yaml").permitAll()
                     .anyRequest().authenticated())
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+            // JwtAuthFilter populates the Security context; PlatformAdminFirewallFilter reads it.
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(platformAdminFirewallFilter, JwtAuthFilter.class);
 
         return http.build();
     }

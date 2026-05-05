@@ -32,6 +32,32 @@ public enum AuditAction {
     /** Client notification details were updated on an incident (LLD-05). */
     CLIENT_NOTIFICATION_UPDATED,
 
+    // ── LLD-04: Tenant Configuration admin actions ──────────────────────────
+
+    /** Tenant-level fields (legalName, LEI, NCA info, jurisdiction) were updated. */
+    TENANT_CONFIG_UPDATED,
+
+    /** A new critical service was created. */
+    CRITICAL_SERVICE_CREATED,
+
+    /** A critical service name or description was updated. */
+    CRITICAL_SERVICE_UPDATED,
+
+    /** A critical service was archived (active → false). */
+    CRITICAL_SERVICE_ARCHIVED,
+
+    /** A new client base count entry was appended. */
+    CLIENT_BASE_ENTRY_ADDED,
+
+    /** NCA email configuration (sender, recipient, subject template) was updated or created. */
+    NCA_EMAIL_CONFIG_UPDATED,
+
+    /**
+     * A PLATFORM_ADMIN request was blocked by PlatformAdminFirewallFilter because the
+     * path is not in the allowed whitelist (BR-011, NFR-009, LLD-04 AC-6).
+     */
+    PLATFORM_ADMIN_BLOCKED_PATH,
+
     /**
      * Catch-all for non-entity / automated system events.
      * actor_id may be NULL for this action type.
