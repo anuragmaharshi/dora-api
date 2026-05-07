@@ -140,7 +140,7 @@ public class PlatformAdminFirewallFilter extends OncePerRequestFilter {
                     null,
                     context
             );
-        } catch (Exception ex) {
+        } catch (RuntimeException ex) {
             // Audit failure must not affect the blocking decision — log and continue
             log.error("Failed to record PLATFORM_ADMIN_BLOCKED_PATH audit event", ex);
         }
