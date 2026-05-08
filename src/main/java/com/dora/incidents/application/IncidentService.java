@@ -229,6 +229,19 @@ public class IncidentService {
         Instant expiresAt = Instant.now().plus(PRESIGN_TTL);
         String uploadUrl = storageClient.presignPut(s3Key, PRESIGN_TTL).toString();
 
+        // Audit: ATTACHMENT_REQUESTED — LLD §2 requires audit on every state-changing operation
+        ObjectNode afterState = objectMapper.createObjectNode();
+        afterState.put("event", "ATTACHMENT_REQUESTED");
+        afterState.put("attachmentId", attachment.getId().toString());
+        afterState.put("filename", attachment.getFilename());
+
+        auditService.record(
+                AuditAction.INCIDENT_UPDATED,
+                "INCIDENT",
+                incidentId,
+                null,
+                afterState);
+
         return new PresignedUploadResponse(attachment.getId(), uploadUrl, expiresAt);
     }
 
@@ -236,7 +249,14 @@ public class IncidentService {
 
     /**
      * AC-3 step 3: verify file exists in storage, flip status PENDING→READY.
+     *
+     * <p>noRollbackFor = ResponseStatusException.class is intentional:
+     * when the S3 existence check fails we persist FAILED status and then throw
+     * 422 back to the caller. Without this override, Spring's default rollback-on-any-
+     * RuntimeException would roll back the markFailed()+save(), leaving the attachment
+     * perpetually PENDING — which would mask the failure from any subsequent polling.
      */
+    @Transactional(noRollbackFor = ResponseStatusException.class)
     public AttachmentResponse completeAttachment(UUID incidentId,
                                                   UUID attachmentId,
                                                   UUID tenantId) {
@@ -251,12 +271,41 @@ public class IncidentService {
         if (!storageClient.exists(attachment.getS3Key())) {
             attachment.markFailed();
             attachmentRepository.save(attachment);
+
+            // Audit: ATTACHMENT_FAILED — persists because noRollbackFor = ResponseStatusException.class
+            // means the transaction commits even though we throw below. This is intentional so the
+            // FAILED status and this audit row are both durable after a failed upload.
+            ObjectNode failedState = objectMapper.createObjectNode();
+            failedState.put("event", "ATTACHMENT_FAILED");
+            failedState.put("attachmentId", attachment.getId().toString());
+            failedState.put("status", "FAILED");
+
+            auditService.record(
+                    AuditAction.INCIDENT_UPDATED,
+                    "INCIDENT",
+                    incidentId,
+                    null,
+                    failedState);
+
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "Object not found in storage — upload may have failed or URL expired");
         }
 
         attachment.markReady();
         attachmentRepository.save(attachment);
+
+        // Audit: ATTACHMENT_COMPLETED — LLD §2 requires audit on every state-changing operation
+        ObjectNode readyState = objectMapper.createObjectNode();
+        readyState.put("event", "ATTACHMENT_COMPLETED");
+        readyState.put("attachmentId", attachment.getId().toString());
+        readyState.put("status", "READY");
+
+        auditService.record(
+                AuditAction.INCIDENT_UPDATED,
+                "INCIDENT",
+                incidentId,
+                null,
+                readyState);
 
         return toAttachmentResponse(attachment);
     }
