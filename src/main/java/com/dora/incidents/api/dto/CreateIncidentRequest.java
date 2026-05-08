@@ -1,5 +1,6 @@
 package com.dora.incidents.api.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -35,7 +36,9 @@ public record CreateIncidentRequest(
         List<UUID> serviceIds,
 
         // may be empty; each entry becomes an ict_asset row
-        List<AssetRequest> assets
+        // @Valid cascades nested constraints (e.g., @Size on AssetRequest.name) into the list elements;
+        // without it, Bean Validation stops at the List boundary and oversized names return 500 (BUG-1).
+        @Valid List<AssetRequest> assets
 
 ) {
 
