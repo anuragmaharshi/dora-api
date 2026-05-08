@@ -236,7 +236,14 @@ public class IncidentService {
 
     /**
      * AC-3 step 3: verify file exists in storage, flip status PENDING→READY.
+     *
+     * <p>noRollbackFor = ResponseStatusException.class is intentional:
+     * when the S3 existence check fails we persist FAILED status and then throw
+     * 422 back to the caller. Without this override, Spring's default rollback-on-any-
+     * RuntimeException would roll back the markFailed()+save(), leaving the attachment
+     * perpetually PENDING — which would mask the failure from any subsequent polling.
      */
+    @Transactional(noRollbackFor = ResponseStatusException.class)
     public AttachmentResponse completeAttachment(UUID incidentId,
                                                   UUID attachmentId,
                                                   UUID tenantId) {
