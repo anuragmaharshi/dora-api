@@ -186,6 +186,273 @@ paths:
         "403":
           description: Authenticated but role not permitted (e.g. PLATFORM_ADMIN)
 
+  # ── LLD-05: Incident Logging endpoints (bank roles, BOARD_VIEWER excluded) ──
+
+  /api/v1/incidents:
+    post:
+      summary: "AC-1: Create a new incident"
+      description: |
+        Creates an incident record. detection_datetime is stamped server-side (FR-002).
+        A unique INC-YYYYMMDD-NNNN incidentId is assigned.
+        Permitted: OPS_ANALYST, INCIDENT_MANAGER, COMPLIANCE_OFFICER, CISO.
+        PLATFORM_ADMIN: 403. BOARD_VIEWER: 403 (deferred to LLD-14).
+      operationId: createIncident
+      tags:
+        - incidents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIncidentRequest"
+      responses:
+        "201":
+          description: Incident created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Role not permitted (PLATFORM_ADMIN or BOARD_VIEWER)
+        "422":
+          description: Business rule violation (e.g. inactive service ID supplied)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      summary: "AC-6: List incidents (paginated, basic — rich search in LLD-14)"
+      description: |
+        Returns a paginated list of incidents for the authenticated user's tenant.
+        Permitted: OPS_ANALYST, INCIDENT_MANAGER, COMPLIANCE_OFFICER, CISO.
+        BOARD_VIEWER excluded (deferred to LLD-14).
+      operationId: listIncidents
+      tags:
+        - incidents
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            default: createdAt,desc
+      responses:
+        "200":
+          description: Paginated list of incident summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentSummaryPage"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Role not permitted
+
+  /api/v1/incidents/{id}:
+    get:
+      summary: "AC-6: Get full incident detail"
+      description: |
+        Returns full incident detail including attachments, linked services, and ICT assets.
+        Permitted: OPS_ANALYST, INCIDENT_MANAGER, COMPLIANCE_OFFICER, CISO.
+        BOARD_VIEWER excluded (deferred to LLD-14).
+      operationId: getIncident
+      tags:
+        - incidents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Full incident detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentResponse"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Role not permitted
+        "404":
+          description: Incident not found (or belongs to a different tenant)
+
+  /api/v1/incidents/{id}/attachments:
+    post:
+      summary: "AC-3: Request a presigned upload URL for an attachment"
+      description: |
+        Step 1 of 3 in the attachment flow: persists a PENDING metadata row and returns
+        a presigned PUT URL (TTL=15 min per D-LLD05-2). The client PUTs the file directly
+        to MinIO/S3, then calls /complete to confirm delivery.
+        Permitted: OPS_ANALYST, INCIDENT_MANAGER.
+      operationId: requestAttachmentUpload
+      tags:
+        - incidents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestAttachmentUpload"
+      responses:
+        "201":
+          description: Presigned URL issued; attachment row status=PENDING
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresignedUploadResponse"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Role not permitted
+        "404":
+          description: Incident not found
+        "422":
+          description: File size exceeds per-file cap (INCIDENT_ATTACHMENT_MAX_MB)
+
+  /api/v1/incidents/{id}/attachments/{attachmentId}/complete:
+    post:
+      summary: "AC-3: Confirm upload completion, flip status to READY"
+      description: |
+        Step 3 of 3: verifies the object exists in storage (head request) and
+        transitions attachment status from PENDING to READY.
+        If the object is not found, status is set to FAILED and 422 is returned.
+        Permitted: OPS_ANALYST, INCIDENT_MANAGER.
+      operationId: completeAttachment
+      tags:
+        - incidents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Attachment status=READY
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentResponse"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Role not permitted
+        "404":
+          description: Attachment not found
+        "422":
+          description: Object not found in storage — upload failed or URL expired
+
+  /api/v1/incidents/{id}/services:
+    post:
+      summary: "AC-4: Link active critical services to an incident"
+      description: |
+        Validates that each supplied UUID references an active critical_service for the
+        tenant. Inactive or unknown IDs return 422.
+        Permitted: OPS_ANALYST, INCIDENT_MANAGER.
+      operationId: linkServices
+      tags:
+        - incidents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkServicesRequest"
+      responses:
+        "204":
+          description: Services linked
+        "401":
+          description: Not authenticated
+        "403":
+          description: Role not permitted
+        "404":
+          description: Incident not found
+        "422":
+          description: One or more service IDs inactive or not found
+
+  /api/v1/incidents/{id}/assets:
+    post:
+      summary: "AC-5: Link an ICT asset to an incident"
+      description: |
+        Creates an ict_asset row with a direct FK to the incident.
+        Asset type is free-form — taxonomy defined at application layer.
+        Permitted: OPS_ANALYST, INCIDENT_MANAGER.
+      operationId: linkAsset
+      tags:
+        - incidents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkAssetRequest"
+      responses:
+        "201":
+          description: ICT asset linked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IctAssetResponse"
+        "400":
+          description: Validation error
+        "401":
+          description: Not authenticated
+        "403":
+          description: Role not permitted
+        "404":
+          description: Incident not found
+
   # ── LLD-04: Admin endpoints (PLATFORM_ADMIN only) ──────────────────────────
 
   /api/v1/admin/tenant:
@@ -619,6 +886,269 @@ components:
           type: string
           format: date-time
           example: "2026-04-24T10:00:00Z"
+
+    # ── LLD-05: Incident schemas ───────────────────────────────────────────────
+
+    CreateIncidentRequest:
+      type: object
+      required:
+        - title
+        - description
+      properties:
+        title:
+          type: string
+          maxLength: 200
+          example: "Payments Rail Outage"
+        description:
+          type: string
+          example: "Core payments rail is unresponsive since 09:45 UTC"
+        impactEstimate:
+          type: string
+          nullable: true
+          example: "High impact — all payment processing halted"
+        serviceIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Active critical_service UUIDs (AC-4). Empty list is valid.
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetRequest"
+          description: Inline ICT assets to link at creation time (AC-5).
+
+    AssetRequest:
+      type: object
+      required:
+        - name
+        - type
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          example: "Payment Gateway Server"
+        type:
+          type: string
+          maxLength: 100
+          example: "SERVER"
+
+    IncidentResponse:
+      type: object
+      description: Full incident detail including linked entities
+      properties:
+        id:
+          type: string
+          format: uuid
+        incidentId:
+          type: string
+          example: "INC-20260507-0001"
+          description: Human-readable incident ID in INC-YYYYMMDD-NNNN format
+        title:
+          type: string
+        description:
+          type: string
+        impactEstimate:
+          type: string
+          nullable: true
+        detectionDatetime:
+          type: string
+          format: date-time
+          description: Server-stamped immutable timestamp (FR-002, D-LLD05-1)
+        status:
+          type: string
+          enum: [DETECTED, UNDER_ASSESSMENT, CLASSIFIED, ONGOING, RESOLVED]
+          example: DETECTED
+        tenantId:
+          type: string
+          format: uuid
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttachmentResponse"
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/LinkedServiceResponse"
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/IctAssetResponse"
+
+    IncidentSummary:
+      type: object
+      description: Compact projection for paginated list endpoint
+      properties:
+        id:
+          type: string
+          format: uuid
+        incidentId:
+          type: string
+          example: "INC-20260507-0001"
+        title:
+          type: string
+        status:
+          type: string
+          enum: [DETECTED, UNDER_ASSESSMENT, CLASSIFIED, ONGOING, RESOLVED]
+        detectionDatetime:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        tenantId:
+          type: string
+          format: uuid
+        createdBy:
+          type: string
+          format: uuid
+
+    IncidentSummaryPage:
+      type: object
+      description: Spring Page wrapper for IncidentSummary
+      properties:
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncidentSummary"
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+        size:
+          type: integer
+        number:
+          type: integer
+
+    RequestAttachmentUpload:
+      type: object
+      required:
+        - filename
+        - contentType
+        - sizeBytes
+      properties:
+        filename:
+          type: string
+          maxLength: 500
+          example: "evidence.pdf"
+        contentType:
+          type: string
+          maxLength: 200
+          example: "application/pdf"
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 1048576
+          description: File size in bytes; must be > 0 and ≤ INCIDENT_ATTACHMENT_MAX_MB limit
+
+    PresignedUploadResponse:
+      type: object
+      description: Presigned PUT URL + attachment metadata (AC-3)
+      properties:
+        attachmentId:
+          type: string
+          format: uuid
+        uploadUrl:
+          type: string
+          format: uri
+          description: Presigned PUT URL; valid for 15 minutes (D-LLD05-2)
+        expiresAt:
+          type: string
+          format: date-time
+
+    AttachmentResponse:
+      type: object
+      description: Attachment metadata (returned in incident detail and after /complete)
+      properties:
+        id:
+          type: string
+          format: uuid
+        incidentId:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        contentType:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        s3Key:
+          type: string
+          description: Object key in the S3/MinIO bucket
+        status:
+          type: string
+          enum: [PENDING, READY, FAILED]
+        uploadedBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    LinkedServiceResponse:
+      type: object
+      description: Summary of a linked critical service
+      properties:
+        serviceId:
+          type: string
+          format: uuid
+        name:
+          type: string
+
+    LinkServicesRequest:
+      type: object
+      required:
+        - serviceIds
+      properties:
+        serviceIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+          description: Active critical_service UUIDs to link to the incident
+
+    LinkAssetRequest:
+      type: object
+      required:
+        - name
+        - type
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          example: "Core Router EU-WEST-1"
+        type:
+          type: string
+          maxLength: 100
+          example: "NETWORK_DEVICE"
+
+    IctAssetResponse:
+      type: object
+      description: ICT asset linked to an incident
+      properties:
+        id:
+          type: string
+          format: uuid
+        incidentId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
 
     # ── LLD-04: Admin schemas ──────────────────────────────────────────────────
 

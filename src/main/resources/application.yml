@@ -42,8 +42,17 @@ springdoc:
 aws:
   s3:
     endpoint: ${S3_ENDPOINT:http://localhost:9000}
-    region: us-east-1
+    region: ${AWS_REGION:us-east-1}
     bucket: ${S3_BUCKET:dora-local}
+    # MinIO / S3 credentials — supplied via env vars; never hardcoded.
+    # For MinIO local dev: set MINIO_ROOT_USER / MINIO_ROOT_PASSWORD in docker-compose.
+    access-key: ${AWS_ACCESS_KEY_ID:minioadmin}
+    secret-key: ${AWS_SECRET_ACCESS_KEY:minioadmin}
+
+incident:
+  attachment:
+    # Per-file upload cap (LLD-05 §6, INCIDENT_ATTACHMENT_MAX_MB env var).
+    max-mb: ${INCIDENT_ATTACHMENT_MAX_MB:50}
 
 # DevJwtService config — HMAC-SHA256 local JWT issuer (stands in for Cognito until LLD-16)
 # DEV_JWT_SECRET must be ≥32 chars; never hardcode here — supply via .env or docker-compose env.

@@ -29,6 +29,21 @@ springdoc:
   api-docs:
     path: /v3/api-docs
 
+# AWS S3 / MinIO — test defaults. Tests that mock ObjectStorageClient override these.
+# Tests that need real S3 behaviour should use Testcontainers with a MinIO container.
+aws:
+  s3:
+    endpoint: http://localhost:9000
+    region: us-east-1
+    bucket: dora-local
+    access-key: minioadmin
+    secret-key: minioadmin
+
+# Incident attachment cap — test default (same as production default)
+incident:
+  attachment:
+    max-mb: 50
+
 # DevJwtService — test values; never commit real secrets here.
 dora:
   jwt:
