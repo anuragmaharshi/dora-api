@@ -1,5 +1,6 @@
 package com.dora.incidents.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -32,7 +33,13 @@ public record CreateIncidentRequest(
         // nullable — estimate may not be known at detection time
         String impactEstimate,
 
-        // may be empty; each ID must reference an active critical_service
+        // may be empty; each ID must reference an active critical_service.
+        // @JsonAlias accepts the legacy E2E field name "affectedServiceIds" in addition to the
+        // OpenAPI-canonical "serviceIds" — both map to this field. The canonical name remains
+        // serviceIds per openapi.yaml; affectedServiceIds is accepted for E2E client compat
+        // (Bug #23: E2E client sends affectedServiceIds but DTO had serviceIds, causing silent
+        // null deserialization and the archived-service validation being skipped).
+        @JsonAlias("affectedServiceIds")
         List<UUID> serviceIds,
 
         // may be empty; each entry becomes an ict_asset row

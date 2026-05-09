@@ -49,6 +49,14 @@ aws:
     access-key: ${AWS_ACCESS_KEY_ID:minioadmin}
     secret-key: ${AWS_SECRET_ACCESS_KEY:minioadmin}
 
+minio:
+  # Public-facing base URL for presigned URLs returned to clients.
+  # The S3 SDK uses aws.s3.endpoint for internal API calls (container-to-container).
+  # Presigned URLs returned to external clients must use a hostname the client can resolve.
+  # In Docker Compose E2E: set MINIO_PUBLIC_URL=http://localhost:9000
+  # In production: set MINIO_PUBLIC_URL to the public MinIO/S3 hostname.
+  public-url: ${MINIO_PUBLIC_URL:http://localhost:9000}
+
 incident:
   attachment:
     # Per-file upload cap (LLD-05 §6, INCIDENT_ATTACHMENT_MAX_MB env var).

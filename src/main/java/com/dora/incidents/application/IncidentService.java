@@ -10,6 +10,7 @@ import com.dora.incidents.api.dto.LinkAssetRequest;
 import com.dora.incidents.api.dto.LinkServicesRequest;
 import com.dora.incidents.api.dto.PresignedUploadResponse;
 import com.dora.incidents.api.dto.RequestAttachmentUpload;
+import com.dora.incidents.api.dto.UpdateIncidentRequest;
 import com.dora.incidents.domain.Attachment;
 import com.dora.incidents.domain.AttachmentRepository;
 import com.dora.incidents.domain.IctAsset;
@@ -178,6 +179,68 @@ public class IncidentService {
         return toFullResponse(incident,
                 attachments,
                 incident.getAffectedServices().stream().toList(),
+                assets);
+    }
+
+    // ── updateIncident ────────────────────────────────────────────────────────
+
+    /**
+     * PUT /api/v1/incidents/{id}: update the mutable fields of an existing incident.
+     *
+     * <p>Mutable: title, description, impactEstimate.
+     * Immutable: detection_datetime (FR-002), incident_id, tenant_id, created_by, status.
+     * The status lifecycle is owned by LLD-06.
+     *
+     * <p>Tenant isolation is enforced: a user may only update incidents belonging to their
+     * own tenant. A mismatched or absent incident surfaces as 404 to avoid leaking existence.
+     *
+     * <p>OPEN-Q: LLD-05 §4 authz table does not define this endpoint. Authorization assumed
+     * INCIDENT_MANAGER per dispatch instructions; pending BA confirmation.
+     *
+     * @param id       the incident UUID (PK)
+     * @param req      the validated update request
+     * @param tenantId resolved from the authenticated principal — never from the request body
+     * @param actorId  resolved from the authenticated principal — recorded in audit
+     * @return updated full incident response
+     */
+    public IncidentResponse updateIncident(UUID id, UpdateIncidentRequest req,
+                                           UUID tenantId, UUID actorId) {
+        Incident incident = loadIncidentForTenant(id, tenantId);
+
+        // Capture before-state for audit diff
+        ObjectNode beforeState = objectMapper.createObjectNode();
+        beforeState.put("title", incident.getTitle());
+        beforeState.put("description", incident.getDescription());
+        beforeState.put("impactEstimate", incident.getImpactEstimate());
+
+        incident.setTitle(req.title());
+        incident.setDescription(req.description());
+        incident.setImpactEstimate(req.impactEstimate());
+        incidentRepository.save(incident);
+
+        ObjectNode afterState = objectMapper.createObjectNode();
+        afterState.put("title", req.title());
+        afterState.put("description", req.description());
+        afterState.put("impactEstimate", req.impactEstimate());
+        afterState.put("updatedBy", actorId.toString());
+
+        auditService.record(
+                AuditAction.INCIDENT_UPDATED,
+                "INCIDENT",
+                id,
+                beforeState,
+                afterState);
+
+        // Reload full response with all associations
+        List<Attachment> attachments = attachmentRepository.findByIncidentIdOrderByCreatedAtAsc(id);
+        List<IctAsset> assets = ictAssetRepository.findByIncidentId(id);
+        Incident reloaded = incidentRepository.findByIdWithDetails(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                        "Incident vanished after update — data integrity violation"));
+
+        return toFullResponse(reloaded,
+                attachments,
+                reloaded.getAffectedServices().stream().toList(),
                 assets);
     }
 

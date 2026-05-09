@@ -39,6 +39,10 @@ aws:
     access-key: minioadmin
     secret-key: minioadmin
 
+minio:
+  # Test default matches the aws.s3.endpoint — no host rewriting needed in tests.
+  public-url: http://localhost:9000
+
 # Incident attachment cap — test default (same as production default)
 incident:
   attachment:
