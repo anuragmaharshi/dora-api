@@ -9,6 +9,7 @@ import com.dora.incidents.api.dto.LinkAssetRequest;
 import com.dora.incidents.api.dto.LinkServicesRequest;
 import com.dora.incidents.api.dto.PresignedUploadResponse;
 import com.dora.incidents.api.dto.RequestAttachmentUpload;
+import com.dora.incidents.api.dto.UpdateIncidentRequest;
 import com.dora.incidents.application.IncidentService;
 import com.dora.security.CustomUserDetails;
 import com.dora.security.RoleNames;
@@ -23,6 +24,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -38,6 +40,7 @@ import java.util.UUID;
  *   <li>POST   /incidents              — OPS_ANALYST, INCIDENT_MANAGER, COMPLIANCE_OFFICER, CISO</li>
  *   <li>GET    /incidents/{id}         — OPS_ANALYST, INCIDENT_MANAGER, COMPLIANCE_OFFICER, CISO (BOARD_VIEWER excluded per BLOCKER-1)</li>
  *   <li>GET    /incidents              — OPS_ANALYST, INCIDENT_MANAGER, COMPLIANCE_OFFICER, CISO (BOARD_VIEWER excluded)</li>
+ *   <li>PUT    /incidents/{id}         — INCIDENT_MANAGER only (OPEN-Q: LLD §4 table omits this row; assumed per dispatch instructions; pending BA)</li>
  *   <li>POST   /incidents/{id}/attachments          — OPS_ANALYST, INCIDENT_MANAGER</li>
  *   <li>POST   /incidents/{id}/attachments/{id}/complete — OPS_ANALYST, INCIDENT_MANAGER</li>
  *   <li>POST   /incidents/{id}/services — OPS_ANALYST, INCIDENT_MANAGER</li>
@@ -99,6 +102,30 @@ public class IncidentController {
 
         UUID tenantId = resolveTenantId(principal);
         return ResponseEntity.ok(incidentService.findById(id, tenantId));
+    }
+
+    /**
+     * AC-2 update path: update mutable fields of an existing incident.
+     *
+     * <p>Only title, description, and impactEstimate are mutable. The detection_datetime
+     * is intentionally absent from UpdateIncidentRequest — any attempt to change it is
+     * rejected at the DTO layer (field not present) and by the DB trigger (FR-002, AC-2).
+     *
+     * <p>OPEN-Q: LLD-05 §4 authz table does not define this endpoint.
+     * Authorization assumed hasRole('INCIDENT_MANAGER') per dispatch instructions.
+     * Pending BA confirmation — if a broader set of roles should have update access,
+     * this annotation must be updated to match.
+     */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('" + RoleNames.INCIDENT_MANAGER + "')")
+    public ResponseEntity<IncidentResponse> updateIncident(
+            @PathVariable UUID id,
+            @Valid @RequestBody UpdateIncidentRequest request,
+            @AuthenticationPrincipal CustomUserDetails principal) {
+
+        UUID tenantId = resolveTenantId(principal);
+        UUID actorId = principal.getAppUser().getId();
+        return ResponseEntity.ok(incidentService.updateIncident(id, request, tenantId, actorId));
     }
 
     /**

@@ -137,6 +137,12 @@ public class Incident {
     public Set<com.dora.entities.CriticalService> getAffectedServices() { return affectedServices; }
     public List<IctAsset> getIctAssets() { return ictAssets; }
 
+    // Mutable fields — updated via PUT /incidents/{id} (INCIDENT_MANAGER only).
+    // detection_datetime, tenant_id, incident_id, created_by are immutable per FR-002.
+    public void setTitle(String title) { this.title = title; }
+    public void setDescription(String description) { this.description = description; }
+    public void setImpactEstimate(String impactEstimate) { this.impactEstimate = impactEstimate; }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
