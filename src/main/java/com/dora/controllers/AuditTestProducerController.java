@@ -1,4 +1,4 @@
-package com.dora.support;
+package com.dora.controllers;
 
 import com.dora.services.AuditService;
 import com.dora.services.audit.AuditAction;
@@ -13,22 +13,24 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 /**
- * Test-only audit row producer for integration tests (LLD-03 §7, W2 dispatch).
+ * Audit row producer for E2E tests (LLD-03 §7, LLD-05 fix-wave).
  *
- * <p>Active only under the {@code test} Spring profile. This controller allows integration
- * and E2E tests to emit a real audit row without depending on LLD-05 incident endpoints
- * (which do not exist yet).
+ * <p>Active only under the {@code e2e} Spring profile. Compiling this into the main JAR
+ * (gated by the profile) means the endpoint is reachable in the Docker Compose E2E stack
+ * where {@code SPRING_PROFILES_ACTIVE=default,e2e} is set. It is never active in
+ * production (profile guard) or in unit/integration test runs (those use the {@code test}
+ * profile, not {@code e2e}).
  *
- * <p>Security: {@code permitAll()} because this endpoint is only reachable in the test
- * profile and is never deployed to staging or production. The controller class itself is
- * excluded from the production build by {@code @Profile("test")}.
+ * <p>Security: {@code permitAll()} is intentional — E2E scenarios call this unauthenticated
+ * to seed audit rows as a test precondition. The {@code e2e} profile is only activated in
+ * controlled test environments; it must never be activated in staging or production.
  *
- * <p>Usage in tests:
+ * <p>Usage:
  * <pre>{@code
  * POST /api/v1/_test/audit-emit?entity_type=PROBE&entity_id=<uuid>&action=INCIDENT_CREATED
  * }</pre>
  */
-@Profile("test")
+@Profile("e2e")
 @RestController
 @RequestMapping("/api/v1/_test")
 public class AuditTestProducerController {

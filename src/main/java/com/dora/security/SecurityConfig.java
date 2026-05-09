@@ -13,6 +13,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -54,9 +55,15 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session ->
                     session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .exceptionHandling(ex ->
-                    // Return 401 JSON-friendly response; avoid the default redirect to /login
-                    ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+            .exceptionHandling(ex -> ex
+                    // Return 401 for unauthenticated requests — avoids default 302 redirect to /login
+                    .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
+                    // Return 403 for authenticated users that lack the required role (Bug #22 fix).
+                    // Without an explicit AccessDeniedHandler, Spring Security's ExceptionTranslationFilter
+                    // may re-route AccessDeniedException through the AuthenticationEntryPoint (401) in
+                    // certain filter-chain ordering scenarios. Explicitly wiring AccessDeniedHandlerImpl
+                    // ensures 403 is always returned for role mismatches regardless of filter ordering.
+                    .accessDeniedHandler(new AccessDeniedHandlerImpl()))
             .authorizeHttpRequests(auth -> auth
                     .requestMatchers(
                             "/api/v1/auth/login",
